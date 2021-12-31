@@ -84,7 +84,7 @@ def Risk_Neutral_Mils_col_deterministic(len_t, dt, Nsims, v0, S0, kappa, theta, 
 
     # Euler X and Mils v
     for i in range(len_t - 1):
-        var_path_det[:, i + 1] = var_path_det[:, i] + kappa * (theta - var_path_det[:, i]) * dt
+        var_path_det[:, i + 1] = np.maximum(var_path_det[:, i], 0) + kappa * (theta - var_path_det[:, i]) * dt
 
         # Euler Simulation of log(Stock Price)
         S_path_det[:, i + 1] = S_path_det[:, i] * np.exp( \
@@ -110,9 +110,26 @@ def Risk_Neutral_Mils_col_b(len_t, dt, Nsims, v0, S0, kappa, theta, eta, z_sim_v
                              0.25 * eta ** 2 * (dt * (z_sim_v[:, i]) ** 2 - dt)
 
         # Euler Simulation of log(Stock Price)
-        payoff_path[:, i + 1] = payoff_path[:, i] + var_path[:, i] * dt
+        payoff_path[:, i + 1] = payoff_path[:, i] + np.maximum(var_path[:, i], 0) * dt
 
     return var_path, payoff_path
+
+
+def variance_analytic(T):
+    return theta + (v0 - theta) * np.exp(-kappa * T)
+
+def contingent_Analytical(T):
+    cont_claim = theta * T + (1 - np.exp(-kappa *T)) * (v0 - theta)/kappa
+    return cont_claim
+
+
+def contingent_Analytical_sqr(T):
+    part = (2 * kappa * theta + eta **2) / (2 * kappa)
+    part1 = part * theta * T
+    part2 = (v0**2 - part * (2*v0 - theta)) * (1 - np.exp(-2*kappa*T))/ (2 *kappa)
+    part3 = part *2*(v0 - theta) * (1-np.exp(- kappa * T))/ kappa
+    cont_claim = part1 + part2 + part3
+    return cont_claim
 
 
 def contingent_Sim(T, dt, var_path_1):
@@ -128,7 +145,7 @@ def contingent_Sim(T, dt, var_path_1):
 
         left_riemann_sum = np.sum(y_value[0:num_of_y - 1] * dt)
         simulated_vals.append(max(left_riemann_sum, 0))
-    return np.mean(simulated_vals)
+    return simulated_vals
 
 
 def contingent_Sim_sqr(T, dt, var_path_1):
@@ -143,7 +160,28 @@ def contingent_Sim_sqr(T, dt, var_path_1):
         # calculate contingent by left riemann sum
         left_riemann_sum = np.sum(y_value[0:num_of_y - 1] ** 2 * dt)
         simulated_vals.append(max(left_riemann_sum, 0))
-    return np.mean(simulated_vals)
+    return simulated_vals
+
+
+def optimal_gmma(x_sim, cv_sim):
+    gamma = np.cov(x_sim, cv_sim) / np.var(cv_sim)
+    return gamma[0][1]
+
+
+def cv_gamma(price_sim, cv1_sim, cv2_sim, cv3_sim, cv4_sim):
+    a = np.array([[np.var(cv1_sim), np.cov(cv1_sim, cv2_sim)[0][1], np.cov(cv1_sim, cv3_sim)[0][1], np.cov(cv1_sim, cv4_sim)[0][1]],
+                 [np.cov(cv2_sim, cv1_sim)[0][1], np.var(cv2_sim), np.cov(cv2_sim, cv3_sim)[0][1], np.cov(cv2_sim, cv4_sim)[0][1]],
+                 [np.cov(cv3_sim, cv1_sim)[0][1], np.cov(cv3_sim, cv2_sim)[0][1], np.var(cv3_sim), np.cov(cv3_sim, cv4_sim)[0][1]],
+                 [np.cov(cv4_sim, cv1_sim)[0][1], np.cov(cv4_sim, cv2_sim)[0][1], np.cov(cv4_sim, cv3_sim)[0][1], np.var(cv4_sim)]])
+    b = np.array([np.cov(price_sim, cv1_sim)[0][1], np.cov(price_sim, cv2_sim)[0][1], np.cov(price_sim, cv3_sim)[0][1], np.cov(price_sim, cv4_sim)[0][1]])
+
+    return np.linalg.solve(a, b.T)
+
+
+def optimal_gamma_cv(price_sim, cv_list, cv_sim, cv1_sim, cv2_sim, cv3_sim):
+    optimal_cv_gamma = np.cov(price_sim, cv_sim)
+    - (cv_list[0] * np.cov(cv_sim, cv1_sim) + cv_list[1] * np.cov(cv_sim, cv2_sim) + cv_list[2] * np.cov(cv_sim, cv3_sim))
+    return optimal_cv_gamma[0][1] / np.var(cv_sim)
 
 
 if __name__ == '__main__':
@@ -185,71 +223,111 @@ if __name__ == '__main__':
 
     [var_path_1, S_path_1] = Risk_Neutral_Mils_col(len_t1, dt, Nsims, v0, S0, kappa, theta, eta, z_sim_v, z_sim_s)
 
-    # plt.plot(t_line, S_path_1.T)
-    # plt.xlabel('Time')
-    # plt.ylabel('Simulated Paths')
-    # plt.title('Simulated Path with Heston Model')
-    # plt.savefig('2c_stock_price_heston.jpg')
+    plt.figure(6)
+    plt.plot(t_line, S_path_1.T)
+    plt.xlabel('Time')
+    plt.ylabel('Simulated Paths')
+    plt.title('Simulated Path with Heston Model')
+    plt.savefig('2c_stock_price_heston.jpg')
 
     [var_path_2, S_path_2] = Risk_Neutral_Mils_col_deterministic(len_t1, dt, Nsims, v0, S0, kappa, theta, eta, z_sim_v, z_sim_s)
 
-    # plt.plot(t_line, S_path_2.T)
-    # plt.xlabel('Time')
-    # plt.ylabel('Simulated Paths')
-    # plt.title('Simulated Path with Deterministic Variance')
-    # plt.savefig('2c_stock_price_determin.jpg')
+    plt.figure(7)
+    plt.plot(t_line, S_path_2.T)
+    plt.xlabel('Time')
+    plt.ylabel('Simulated Paths')
+    plt.title('Simulated Path with Deterministic Variance')
+    plt.savefig('2c_stock_price_determin.jpg')
 
     # 2c1 option price with deterministic variance path
     # T = 0.25
+
+
 
     fin_vol_call_1 = np.zeros(K_steps)
     fin_vol_call_2 = np.zeros(K_steps)
     fin_vol_call_3 = np.zeros(K_steps)
     fin_vol_call_4 = np.zeros(K_steps)
+    fin_vol_call_5 = np.zeros(K_steps)
+    fin_vol_call_6 = np.zeros(K_steps)
     for i in range(0, K_steps):
         option_price = np.maximum(S_path_1[:, -1] - K_call[i], 0)
         mean_price = np.mean(option_price)
         # some confidence interval
         fin_vol_call_1[i] = find_vol_call(mean_price, S0, K_call[i], T1)
 
-        option_price_2 = np.maximum(S_path_2[:, -1] - K_call[i], 0)
-        mean_price_2 = np.mean(option_price_2)
+        mean_price_2 = mean_price + optimal_gmma(option_price, var_path_1[:, -1]) * (variance_analytic(T1) - np.mean(var_path_1[:, -1]))
         print(mean_price, mean_price_2)
         # some confidence interval
         fin_vol_call_2[i] = find_vol_call(mean_price_2, S0, K_call[i], T1)
 
-        mean_price_3 = contingent_Sim(T1, dt, var_path_1)
+        contingent_sims = contingent_Sim(T1, dt, var_path_1)
+        mean_price_3 = mean_price + optimal_gmma(option_price, contingent_sims) * (contingent_Analytical(T1) - np.mean(contingent_sims))
         fin_vol_call_3[i] = find_vol_call(mean_price_3, S0, K_call[i], T1)
 
-        mean_price_4 = contingent_Sim_sqr(T1, dt, var_path_1)
+        contingent_sims_sq = contingent_Sim_sqr(T1, dt, var_path_1)
+        mean_price_4 = mean_price + optimal_gmma(option_price, contingent_sims_sq) * (
+                    contingent_Analytical_sqr(T1) - np.mean(contingent_sims_sq))
         fin_vol_call_4[i] = find_vol_call(mean_price_4, S0, K_call[i], T1)
+
+        mean_price_5 = mean_price + optimal_gmma(option_price, S_path_1[:, -1]) * (
+                S0 - np.mean(S_path_1[:, -1]))
+        fin_vol_call_5[i] = find_vol_call(mean_price_5, S0, K_call[i], T1)
+
+        gamma_cv = cv_gamma(option_price, var_path_1[:, -1], contingent_sims, contingent_sims_sq, S_path_1[:, -1])
+
+        mean_price_6 = mean_price \
+                       + optimal_gamma_cv(option_price, gamma_cv[1:], var_path_1[:, -1], contingent_sims, contingent_sims_sq, S_path_1[:, -1]) * (variance_analytic(T1) - np.mean(var_path_1[:, -1])) \
+                       + optimal_gamma_cv(option_price, list(gamma_cv[i] for i in [0,2,3]), contingent_sims, var_path_1[:, -1], contingent_sims_sq, S_path_1[:, -1]) * (contingent_Analytical(T1) - np.mean(contingent_sims))\
+                       + optimal_gamma_cv(option_price, list(gamma_cv[i] for i in [0,1,3]), contingent_sims_sq, var_path_1[:, -1], contingent_sims, S_path_1[:, -1]) * (contingent_Analytical_sqr(T1) - np.mean(contingent_sims_sq))\
+                       + optimal_gamma_cv(option_price, gamma_cv[:3], S_path_1[:, -1], var_path_1[:, -1], contingent_sims, contingent_sims_sq) * (S0 - np.mean(S_path_1[:, -1]))
+        fin_vol_call_6[i] = find_vol_call(mean_price_6, S0, K_call[i], T1)
+        print(mean_price, mean_price_2, mean_price_3, mean_price_4)
 
     fin_vol_put_1 = np.zeros(K_steps)
     fin_vol_put_2 = np.zeros(K_steps)
     fin_vol_put_3 = np.zeros(K_steps)
     fin_vol_put_4 = np.zeros(K_steps)
+    fin_vol_put_5 = np.zeros(K_steps)
+    fin_vol_put_6 = np.zeros(K_steps)
     for i in range(0, K_steps):
         option_price = np.maximum(-S_path_1[:, -1] + K_put[i], 0)
         mean_price = np.mean(option_price)
         # some confidence interval
         fin_vol_put_1[i] = find_vol_put(mean_price, S0, K_put[i], T1)
 
-        option_price_2 = np.maximum(-S_path_2[:, -1] + K_put[i], 0)
-        mean_price_2 = np.mean(option_price_2)
         # some confidence interval
+        mean_price_2 = mean_price + optimal_gmma(option_price, var_path_1[:, -1]) * (
+                    variance_analytic(T1) - np.mean(var_path_1[:, -1]))
         fin_vol_put_2[i] = find_vol_put(mean_price_2, S0, K_put[i], T1)
 
-        mean_price_3 = contingent_Sim(T1, dt, var_path_1)
+        contingent_sims = contingent_Sim(T1, dt, var_path_1)
+        mean_price_3 = mean_price + optimal_gmma(option_price, contingent_sims) * (contingent_Analytical(T1) - np.mean(contingent_sims))
         fin_vol_put_3[i] = find_vol_put(mean_price_3, S0, K_put[i], T1)
 
-        mean_price_4 = contingent_Sim_sqr(T1, dt, var_path_1)
+        contingent_sims_sq = contingent_Sim_sqr(T1, dt, var_path_1)
+        mean_price_4 = mean_price + optimal_gmma(option_price, contingent_sims_sq) * (
+                    contingent_Analytical_sqr(T1) - np.mean(contingent_sims_sq))
         fin_vol_put_4[i] = find_vol_put(mean_price_4, S0, K_put[i], T1)
+
+        mean_price_5 = mean_price + optimal_gmma(option_price, S_path_1[:, -1]) * (
+                S0 - np.mean(S_path_1[:, -1]))
+        fin_vol_put_5[i] = find_vol_put(mean_price_5, S0, K_put[i], T1)
+
+        gamma_cv = cv_gamma(option_price, var_path_1[:, -1], contingent_sims, contingent_sims_sq, S_path_1[:, -1])
+
+        mean_price_6 = mean_price \
+                       + optimal_gamma_cv(option_price, gamma_cv[1:], var_path_1[:, -1], contingent_sims, contingent_sims_sq, S_path_1[:, -1]) * (variance_analytic(T1) - np.mean(var_path_1[:, -1])) \
+                       + optimal_gamma_cv(option_price, list(gamma_cv[i] for i in [0,2,3]), contingent_sims, var_path_1[:, -1], contingent_sims_sq, S_path_1[:, -1]) * (contingent_Analytical(T1) - np.mean(contingent_sims))\
+                       + optimal_gamma_cv(option_price, list(gamma_cv[i] for i in [0,1,3]), contingent_sims_sq, var_path_1[:, -1], contingent_sims, S_path_1[:, -1]) * (contingent_Analytical_sqr(T1) - np.mean(contingent_sims_sq))\
+                       + optimal_gamma_cv(option_price, gamma_cv[:3], S_path_1[:, -1], var_path_1[:, -1], contingent_sims, contingent_sims_sq) * (S0 - np.mean(S_path_1[:, -1]))
+        fin_vol_put_6[i] = find_vol_put(mean_price_6, S0, K_put[i], T1)
 
     plt.figure(1)
     plt.plot(K_call, fin_vol_call_1, label='Risk-Netural Simulated IV_call without control')
     plt.plot(K_put, fin_vol_put_1, label='Risk-Netural Simulated IV_put without control')
     plt.plot(K_call, fin_vol_call_2, label='Control on Variance call')
-    plt.plot(K_put, fin_vol_put_2, label='Control on Variance call')
+    plt.plot(K_put, fin_vol_put_2, label='Control on Variance put')
     plt.xlabel('Strike')
     plt.ylabel('Implied Volatility')
     plt.title('Set Variance as Control Variable Simulation for T = 0.25')
@@ -271,10 +349,32 @@ if __name__ == '__main__':
     plt.figure(3)
     plt.plot(K_call, fin_vol_call_1, label='Risk-Netural Simulated IV_call without control')
     plt.plot(K_put, fin_vol_put_1, label='Risk-Netural Simulated IV_put without control')
-    plt.plot(K_call, fin_vol_call_3, label='Control on Payoff call')
-    plt.plot(K_put, fin_vol_put_3, label='Control on Payoff put')
+    plt.plot(K_call, fin_vol_call_4, label='Control on Payoff call')
+    plt.plot(K_put, fin_vol_put_4, label='Control on Payoff put')
     plt.xlabel('Strike')
     plt.ylabel('Implied Volatility')
     plt.title('Set Payoff Square as Control Variable Simulation for T = 0.25')
     plt.legend()
     plt.savefig('2ci_c.jpg')
+
+    plt.figure(4)
+    plt.plot(K_call, fin_vol_call_1, label='Risk-Netural Simulated IV_call without control')
+    plt.plot(K_put, fin_vol_put_1, label='Risk-Netural Simulated IV_put without control')
+    plt.plot(K_call, fin_vol_call_5, label='Control on Stock call')
+    plt.plot(K_put, fin_vol_put_5, label='Control on Stock put')
+    plt.xlabel('Strike')
+    plt.ylabel('Implied Volatility')
+    plt.title('Set Stock Price as Control Variable Simulation for T = 0.25')
+    plt.legend()
+    plt.savefig('2ci_d.jpg')
+
+    plt.figure(5)
+    plt.plot(K_call, fin_vol_call_1, label='Risk-Netural Simulated IV_call without control')
+    plt.plot(K_put, fin_vol_put_1, label='Risk-Netural Simulated IV_put without control')
+    plt.plot(K_call, fin_vol_call_6, label='Multiple Control Variables call')
+    plt.plot(K_put, fin_vol_put_6, label='Multiple Control Variables put')
+    plt.xlabel('Strike')
+    plt.ylabel('Implied Volatility')
+    plt.title('Multiple Control Variables Simulation for T = 0.25')
+    plt.legend()
+    plt.savefig('2cii.jpg')
